@@ -1,0 +1,1228 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>眼动追踪阅读器</title>
+    <!-- TensorFlow.js and MediaPipe -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/face-landmarks-detection"></script>
+    <!-- Swiper -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swiper@8/swiper-bundle.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/swiper@8/swiper-bundle.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Noto Serif SC', serif, 'Microsoft YaHei', sans-serif;
+            background: linear-gradient(135deg, #f5f7fa 0%, #e4e8ed 100%);
+            color: #2c3e50;
+            min-height: 100vh;
+            line-height: 1.6;
+        }
+        
+        .app-container {
+            display: flex;
+            flex-direction: column;
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+            gap: 20px;
+        }
+        
+        header {
+            text-align: center;
+            padding: 20px;
+            background: #fff;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+            border-left: 5px solid #3498db;
+        }
+        
+        h1 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            color: #2c3e50;
+            font-weight: 600;
+        }
+        
+        .subtitle {
+            font-size: 1.1rem;
+            color: #7f8c8d;
+        }
+        
+        .main-content {
+            display: grid;
+            grid-template-columns: 1fr 400px;
+            gap: 20px;
+        }
+        
+        .reader-section {
+            background: #fff;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+        }
+        
+        .tech-section {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+        
+        .swiper-container {
+            height: 600px;
+            position: relative;
+            background: #fff;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+        }
+        
+        .swiper {
+            width: 100%;
+            height: 100%;
+            background: #f8f9fa;
+        }
+        
+        .swiper-slide {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            padding: 60px 40px;
+            text-align: center;
+            background: #fff;
+            font-size: 1.4rem;
+            line-height: 1.8;
+            color: #2c3e50;
+            position: relative;
+            overflow-y: auto;
+        }
+        
+        .slide-title {
+            font-size: 1.8rem;
+            font-weight: 600;
+            margin-bottom: 30px;
+            color: #3498db;
+            border-bottom: 2px solid #3498db;
+            padding-bottom: 10px;
+            width: 100%;
+        }
+        
+        .slide-content {
+            max-width: 800px;
+            text-align: left;
+            font-size: 1.3rem;
+            line-height: 1.8;
+        }
+        
+        .slide-page {
+            position: absolute;
+            bottom: 20px;
+            right: 30px;
+            font-size: 1rem;
+            color: #7f8c8d;
+        }
+        
+        .gaze-indicator {
+            position: absolute;
+            top: 0;
+            height: 100%;
+            width: 35%;
+            transition: all 0.5s ease;
+            z-index: 10;
+            opacity: 0;
+        }
+        
+        .gaze-left {
+            left: 0;
+            background: linear-gradient(to right, rgba(52, 152, 219, 0.3), transparent);
+        }
+        
+        .gaze-right {
+            right: 0;
+            background: linear-gradient(to left, rgba(231, 76, 60, 0.3), transparent);
+        }
+        
+        .gaze-active {
+            opacity: 0.7;
+        }
+        
+        .controls {
+            display: flex;
+            justify-content: space-between;
+            padding: 20px;
+            background: #fff;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+        }
+        
+        .control-btn {
+            padding: 12px 30px;
+            background: linear-gradient(135deg, #3498db, #2980b9);
+            color: white;
+            border: none;
+            border-radius: 50px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 10px rgba(52, 152, 219, 0.3);
+        }
+        
+        .control-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 15px rgba(52, 152, 219, 0.4);
+        }
+        
+        .control-btn:disabled {
+            background: linear-gradient(135deg, #95a5a6, #7f8c8d);
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+        
+        .toggle-btn {
+            background: linear-gradient(135deg, #27ae60, #219a52);
+            box-shadow: 0 4px 10px rgba(39, 174, 96, 0.3);
+        }
+        
+        .toggle-btn:hover {
+            box-shadow: 0 6px 15px rgba(39, 174, 96, 0.4);
+        }
+        
+        .toggle-btn.active {
+            background: linear-gradient(135deg, #e74c3c, #c0392b);
+        }
+        
+        .tech-panel {
+            background: #fff;
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+        }
+        
+        .tech-panel h2 {
+            margin-bottom: 15px;
+            color: #2c3e50;
+            font-size: 1.4rem;
+            border-bottom: 2px solid #ecf0f1;
+            padding-bottom: 8px;
+        }
+        
+        .video-container, .canvas-container {
+            position: relative;
+            width: 100%;
+            border-radius: 8px;
+            overflow: hidden;
+            margin-bottom: 15px;
+        }
+        
+        video, canvas {
+            width: 100%;
+            display: block;
+            background: #000;
+        }
+        
+        .fps-counter {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: rgba(0, 0, 0, 0.7);
+            color: white;
+            padding: 5px 10px;
+            border-radius: 4px;
+            font-size: 12px;
+            z-index: 10;
+        }
+        
+        .data-output {
+            height: 150px;
+            overflow-y: auto;
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 15px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            line-height: 1.5;
+            margin-bottom: 15px;
+        }
+        
+        .gaze-direction {
+            text-align: center;
+            font-size: 1.2rem;
+            font-weight: bold;
+            padding: 12px;
+            border-radius: 8px;
+            transition: all 0.3s ease;
+            margin-top: 10px;
+        }
+        
+        .gaze-left-text {
+            background: rgba(52, 152, 219, 0.1);
+            color: #3498db;
+            border-left: 4px solid #3498db;
+        }
+        
+        .gaze-right-text {
+            background: rgba(231, 76, 60, 0.1);
+            color: #e74c3c;
+            border-left: 4px solid #e74c3c;
+        }
+        
+        .gaze-center-text {
+            background: rgba(241, 196, 15, 0.1);
+            color: #f39c12;
+            border-left: 4px solid #f39c12;
+        }
+        
+        .status {
+            text-align: center;
+            padding: 12px;
+            margin: 10px 0;
+            border-radius: 8px;
+            font-weight: 600;
+        }
+        
+        .status-loading {
+            background: rgba(241, 196, 15, 0.1);
+            color: #f39c12;
+            border-left: 4px solid #f39c12;
+        }
+        
+        .status-ready {
+            background: rgba(46, 204, 113, 0.1);
+            color: #27ae60;
+            border-left: 4px solid #27ae60;
+        }
+        
+        .status-error {
+            background: rgba(231, 76, 60, 0.1);
+            color: #e74c3c;
+            border-left: 4px solid #e74c3c;
+        }
+        
+        .instructions {
+            background: #fff;
+            border-radius: 12px;
+            padding: 25px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+            margin-top: 20px;
+        }
+        
+        .instructions h3 {
+            margin-bottom: 15px;
+            color: #2c3e50;
+            font-size: 1.3rem;
+        }
+        
+        .instructions ul {
+            padding-left: 20px;
+            margin-bottom: 15px;
+        }
+        
+        .instructions li {
+            margin-bottom: 8px;
+            color: #5a6c7d;
+        }
+        
+        @media (max-width: 1024px) {
+            .main-content {
+                grid-template-columns: 1fr;
+            }
+            
+            .swiper-container {
+                height: 500px;
+            }
+            
+            .swiper-slide {
+                padding: 40px 20px;
+                font-size: 1.2rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="app-container">
+        <header>
+            <h1>眼动追踪阅读器</h1>
+            <p class="subtitle">使用人工智能技术实现视线控制的智能阅读体验</p>
+        </header>
+        
+        <div class="main-content">
+            <div class="reader-section">
+                <div class="swiper-container">
+                    <div class="gaze-indicator gaze-left" id="gazeIndicator"></div>
+                    <div class="swiper">
+                        <div class="swiper-wrapper" id="swiperWrapper">
+                            <!-- Slides will be generated by JavaScript -->
+                        </div>
+                        <!-- 导航按钮 -->
+                        <div class="swiper-button-prev"></div>
+                        <div class="swiper-button-next"></div>
+                    </div>
+                </div>
+                
+                <div class="controls">
+                    <button class="control-btn" id="prevBtn">上一页</button>
+                    <button class="control-btn toggle-btn" id="toggleTrackingBtn">开启眼动追踪</button>
+                    <button class="control-btn" id="nextBtn">下一页</button>
+                </div>
+            </div>
+            
+            <div class="tech-section">
+                <div class="tech-panel">
+                    <h2>面部追踪状态</h2>
+                    <div class="status" id="status">加载TensorFlow.js和面部网格模型中...</div>
+                    
+                    <div class="video-container">
+                        <video id="video" playsinline autoplay muted></video>
+                    </div>
+                    
+                    <div class="canvas-container">
+                        <canvas id="output"></canvas>
+                        <div class="fps-counter" id="fpsCounter">FPS: 0</div>
+                    </div>
+                    
+                    <div class="data-output" id="dataOutput">
+                        <!-- 面部网格数据将显示在这里 -->
+                    </div>
+                    
+                    <div class="gaze-direction gaze-center-text" id="gazeDirection">
+                        请直视前方进行校准
+                    </div>
+                </div>
+                
+                <div class="tech-panel">
+                    <h2>视线分析数据</h2>
+                    <div class="data-output" id="gazeAnalysis">
+                        <!-- 视线分析数据将显示在这里 -->
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="instructions">
+            <h3>使用说明</h3>
+            <ul>
+                <li>点击"开启眼动追踪"按钮启动摄像头和面部检测</li>
+                <li>确保您的脸部在摄像头中清晰可见</li>
+                <li>当您<strong style="color:#3498db">向左看</strong>时，页面左侧会变为蓝色，并自动翻到上一页</li>
+                <li>当您<strong style="color:#e74c3c">向右看</strong>时，页面右侧会变为红色，并自动翻到下一页</li>
+                <li>您也可以使用"上一页"/"下一页"按钮或左右导航箭头手动翻页</li>
+                <li>阅读时请保持头部相对稳定，以获得最佳追踪效果</li>
+            </ul>
+            <p><strong>提示：</strong>在光线充足的环境下使用，效果更佳。</p>
+        </div>
+    </div>
+
+    <script>
+        // 示例文本数据（在实际应用中可以通过fetch获取）
+        const bookContent = {
+            title: "demo",
+            chapters: [
+                {
+                    title: "神的创造 · 第一日",
+                    content: "1 起初　神创造天地。\n2 地是空虚混沌，渊面黑暗；　神的灵运行在水面上。\n3 神说：“要有光”，就有了光。\n4 神看光是好的，就把光暗分开了。\n5 神称光为昼，称暗为夜。有晚上，有早晨，这是头一日。"
+                },
+                {
+                    title: "第二日",
+                    content: "6 神说：“诸水之间要有空气，将水分为上下。”\n7 神就造出空气，将空气以下的水、空气以上的水分开了。事就这样成了。\n8 神称空气为天。有晚上，有早晨，是第二日。"
+                },
+                {
+                    title: "第三日",
+                    content: "9 神说：“天下的水要聚在一处，使旱地露出来。”事就这样成了。\n10 神称旱地为地，称水的聚处为海。　神看着是好的。\n11 神说：“地要发生青草和结种子的菜蔬，并结果子的树木，各从其类，果子都包着核。”事就这样成了。\n12 于是地发生了青草和结种子的菜蔬，各从其类；并结果子的树木，各从其类，果子都包着核。　神看着是好的。\n13 有晚上，有早晨，是第三日。"
+                },
+                {
+                    title: "第四日",
+                    content: "14 神说：“天上要有光体，可以分昼夜，作记号，定节令、日子、年岁，\n15 并要发光在天空，普照在地上。”事就这样成了。\n16 于是　神造了两个大光，大的管昼，小的管夜，又造众星，\n17 就把这些光摆列在天空，普照在地上，\n18 管理昼夜，分别明暗。　神看着是好的。\n19 有晚上，有早晨，是第四日。"
+                },
+                {
+                    title: "第五日",
+                    content: "20 神说：“水要多多滋生有生命的物，要有雀鸟飞在地面以上，天空之中。”\n21 神就造出大鱼和水中所滋生各样有生命的动物，各从其类；又造出各样飞鸟，各从其类。　神看着是好的。\n22 神就赐福给这一切，说：“滋生繁多，充满海中的水，雀鸟也要多生在地上。”\n23 有晚上，有早晨，是第五日。"
+                },
+                {
+                    title: "第六日 · 造人",
+                    content: "24 神说：“地要生出活物来，各从其类；牲畜、昆虫、野兽，各从其类。”事就这样成了。\n25 于是　神造出野兽，各从其类；牲畜，各从其类；地上一切昆虫，各从其类。　神看着是好的。\n26 神说：“我们要照着我们的形像，按着我们的样式造人，使他们管理海里的鱼、空中的鸟、地上的牲畜和全地，并地上所爬的一切昆虫。”\n27 神就照着自己的形像造人，乃是照着他的形像造男造女。\n28 神就赐福给他们，又对他们说：“要生养众多，遍满地面，治理这地；也要管理海里的鱼、空中的鸟，和地上各样行动的活物。”\n29 神说：“看哪，我将遍地上一切结种子的菜蔬，和一切树上所结有核的果子，全赐给你们作食物。\n30 至于地上的走兽和空中的飞鸟，并各样爬在地上有生命的物，我将青草赐给它们作食物。”事就这样成了。\n31 神看着一切所造的都甚好。有晚上，有早晨，是第六日。"
+                }
+            ]
+        };
+
+        // 全局变量
+        let model;
+        let video;
+        let canvas;
+        let ctx;
+        let isRunning = false;
+        let isTrackingEnabled = false;
+        let animationId;
+        let lastFrameTime = 0;
+        let frameCount = 0;
+        let fps = 0;
+        let swiper;
+        
+        // 视线追踪变量
+        let gazeHistory = [];
+        const gazeHistoryLength = 5;
+        let gazeDetectionEnabled = false;
+        let lastGazeDirection = 'center';
+        let gazeTriggerTimeout = null;
+        let lastPageTurnTime = 0;
+        const PAGE_TURN_COOLDOWN = 1500; // 翻页冷却时间（毫秒）
+        
+        // DOM元素
+        const startButton = document.getElementById('toggleTrackingBtn');
+        const prevBtn = document.getElementById('prevBtn');
+        const nextBtn = document.getElementById('nextBtn');
+        const statusDiv = document.getElementById('status');
+        const dataOutput = document.getElementById('dataOutput');
+        const gazeAnalysis = document.getElementById('gazeAnalysis');
+        const fpsCounter = document.getElementById('fpsCounter');
+        const gazeIndicator = document.getElementById('gazeIndicator');
+        const gazeDirection = document.getElementById('gazeDirection');
+        const swiperWrapper = document.getElementById('swiperWrapper');
+
+        // MediaPipe面部网格关键点索引
+        const LANDMARK_INDICES = {
+            LEFT_EYE: [33, 7, 163, 144, 145, 153, 154, 155, 133, 173, 157, 158, 159, 160, 161, 246],
+            LEFT_EYE_TOP: [159, 158, 157, 173],
+            LEFT_EYE_BOTTOM: [145, 153, 154, 155],
+            RIGHT_EYE: [362, 382, 381, 380, 374, 373, 390, 249, 263, 466, 388, 387, 386, 385, 384, 398],
+            RIGHT_EYE_TOP: [386, 385, 384, 398],
+            RIGHT_EYE_BOTTOM: [374, 373, 390, 249]
+        };
+
+        // 翻转方向
+        const newdir = (dir, flip) => 
+            !flip ? dir : dir === "left" ? "right" : "left";
+
+        // 初始化应用
+        async function init() {
+            try {
+                // 设置TensorFlow.js后端
+                await tf.setBackend('webgl');
+                console.log('TensorFlow.js后端初始化:', tf.getBackend());
+                
+                // 加载面部网格模型
+                statusDiv.textContent = '加载面部网格模型中...';
+                statusDiv.className = 'status status-loading';
+                
+                model = await faceLandmarksDetection.createDetector(
+                    faceLandmarksDetection.SupportedModels.MediaPipeFaceMesh,
+                    {
+                        runtime: 'mediapipe',
+                        solutionPath: 'https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh',
+                        refineLandmarks: true,
+                        maxFaces: 1
+                    }
+                );
+                
+                statusDiv.textContent = '面部网格模型加载成功! 点击"开启眼动追踪"开始阅读.';
+                statusDiv.className = 'status status-ready';
+                console.log('面部网格模型加载成功');
+                
+                // 设置视频和画布
+                video = document.getElementById('video');
+                canvas = document.getElementById('output');
+                ctx = canvas.getContext('2d');
+                
+                // 初始化Swiper
+                initSwiper();
+                
+                // 设置事件监听器
+                startButton.addEventListener('click', toggleTracking);
+                prevBtn.addEventListener('click', () => swiper.slidePrev());
+                nextBtn.addEventListener('click', () => swiper.slideNext());
+                
+            } catch (error) {
+                console.error('初始化应用时出错:', error);
+                statusDiv.textContent = `错误: ${error.message}`;
+                statusDiv.className = 'status status-error';
+            }
+        }
+        
+        // 初始化Swiper并加载内容
+        function initSwiper() {
+            // 生成幻灯片内容
+            bookContent.chapters.forEach((chapter, index) => {
+                const slide = document.createElement('div');
+                slide.className = 'swiper-slide';
+                slide.innerHTML = `
+                    <div class="slide-title">${chapter.title}</div>
+                    <div class="slide-content">${chapter.content.replace(/\n/g, '<br>')}</div>
+                    <div class="slide-page">${index + 1} / ${bookContent.chapters.length}</div>
+                `;
+                swiperWrapper.appendChild(slide);
+            });
+            
+            // 初始化Swiper
+            swiper = new Swiper('.swiper', {
+                direction: 'horizontal',
+                loop: false,
+                speed: 400,
+                navigation: {
+                    nextEl: '.swiper-button-next',
+                    prevEl: '.swiper-button-prev',
+                },
+                keyboard: {
+                    enabled: true,
+                },
+            });
+        }
+        
+        // 切换眼动追踪
+        function toggleTracking() {
+            if (!isTrackingEnabled) {
+                startCamera();
+            } else {
+                stopCamera();
+            }
+        }
+        
+        // 启动摄像头和面部检测
+        async function startCamera() {
+            try {
+                // 获取用户媒体
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { 
+                        width: { ideal: 640 }, 
+                        height: { ideal: 480 },
+                        facingMode: 'user'
+                    } 
+                });
+                
+                video.srcObject = stream;
+                
+                // 等待视频准备就绪
+                video.addEventListener('loadedmetadata', () => {
+                    // 设置画布尺寸以匹配视频
+                    canvas.width = video.videoWidth;
+                    canvas.height = video.videoHeight;
+                    
+                    // 开始面部检测
+                    isRunning = true;
+                    isTrackingEnabled = true;
+                    gazeDetectionEnabled = true;
+                    startButton.textContent = '关闭眼动追踪';
+                    startButton.classList.add('active');
+                    
+                    lastFrameTime = performance.now();
+                    detectFaces();
+                });
+                
+            } catch (error) {
+                console.error('访问摄像头时出错:', error);
+                statusDiv.textContent = `访问摄像头错误: ${error.message}. 请确保您在使用HTTPS或localhost.`;
+                statusDiv.className = 'status status-error';
+            }
+        }
+        
+        // 停止摄像头和面部检测
+        function stopCamera() {
+            isRunning = false;
+            isTrackingEnabled = false;
+            gazeDetectionEnabled = false;
+            
+            if (video.srcObject) {
+                const tracks = video.srcObject.getTracks();
+                tracks.forEach(track => track.stop());
+                video.srcObject = null;
+            }
+            
+            if (animationId) {
+                cancelAnimationFrame(animationId);
+            }
+            
+            // 清除画布
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // 重置视线指示器
+            gazeIndicator.classList.remove('gaze-active');
+            gazeDirection.textContent = '眼动追踪已关闭';
+            gazeDirection.className = 'gaze-direction gaze-center-text';
+            
+            // 更新UI
+            startButton.textContent = '开启眼动追踪';
+            startButton.classList.remove('active');
+            
+            // 清除数据展示
+            dataOutput.innerHTML = '摄像头已关闭。无面部数据。';
+            gazeAnalysis.innerHTML = '摄像头已关闭。无视线分析数据。';
+            
+            statusDiv.textContent = '摄像头已关闭。点击"开启眼动追踪"重新开始。';
+            statusDiv.className = 'status status-ready';
+            
+            // 清除翻页触发器
+            if (gazeTriggerTimeout) {
+                clearTimeout(gazeTriggerTimeout);
+                gazeTriggerTimeout = null;
+            }
+        }
+        
+        // 检测面部并绘制网格
+        async function detectFaces() {
+            if (!isRunning) return;
+            
+            try {
+                // 计算FPS
+                frameCount++;
+                const currentTime = performance.now();
+                if (currentTime - lastFrameTime >= 1000) {
+                    fps = Math.round((frameCount * 1000) / (currentTime - lastFrameTime));
+                    frameCount = 0;
+                    lastFrameTime = currentTime;
+                    fpsCounter.textContent = `FPS: ${fps}`;
+                }
+                
+                // 获取面部预测
+                const predictions = await model.estimateFaces(video, {
+                    flipHorizontal: false,
+                    predictIrises: true
+                });
+                
+                // 清除画布
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                
+                // 绘制视频帧
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                
+                // 处理预测
+                if (predictions.length > 0) {
+                    const face = predictions[0];
+                    
+                    // 绘制面部网格
+                    drawFaceMesh(face);
+                    
+                    // 提取并显示数据
+                    displayFaceData(face);
+                    
+                    // 分析视线方向
+                    analyzeGazeDirection(face);
+                } else {
+                    dataOutput.innerHTML = '<em>未检测到面部。请确保您的面部在摄像头中清晰可见。</em>';
+                    gazeAnalysis.innerHTML = '<em>未检测到面部。无视线分析数据。</em>';
+                    
+                    // 重置视线指示器
+                    gazeIndicator.classList.remove('gaze-active');
+                    gazeDirection.textContent = '未检测到面部';
+                    gazeDirection.className = 'gaze-direction gaze-center-text';
+                }
+                
+                // 继续检测
+                animationId = requestAnimationFrame(detectFaces);
+                
+            } catch (error) {
+                console.error('面部检测过程中出错:', error);
+                // 即使某一帧出错也继续检测
+                animationId = requestAnimationFrame(detectFaces);
+            }
+        }
+        
+        // 在画布上绘制面部网格
+        function drawFaceMesh(face) {
+            if (!face.keypoints || face.keypoints.length === 0) return;
+            
+            // 将所有关键点绘制为小点
+            ctx.fillStyle = '#00FF00';
+            face.keypoints.forEach(point => {
+                ctx.beginPath();
+                ctx.arc(point.x, point.y, 1, 0, 2 * Math.PI);
+                ctx.fill();
+            });
+            
+            // 绘制左眼
+            drawLandmarks(face.keypoints, LANDMARK_INDICES.LEFT_EYE, '#0000FF');
+            
+            // 绘制右眼
+            drawLandmarks(face.keypoints, LANDMARK_INDICES.RIGHT_EYE, '#0000FF');
+            
+            // 绘制虹膜（如果可用）
+            if (face.keypoints[468]) { // 左虹膜中心
+                ctx.fillStyle = '#FFFF00';
+                ctx.beginPath();
+                ctx.arc(face.keypoints[468].x, face.keypoints[468].y, 3, 0, 2 * Math.PI);
+                ctx.fill();
+            }
+            if (face.keypoints[473]) { // 右虹膜中心
+                ctx.fillStyle = '#FFFF00';
+                ctx.beginPath();
+                ctx.arc(face.keypoints[473].x, face.keypoints[473].y, 3, 0, 2 * Math.PI);
+                ctx.fill();
+            }
+        }
+        
+        // 绘制连接的关键点的辅助函数
+        function drawLandmarks(keypoints, indices, color) {
+            ctx.strokeStyle = color;
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            
+            for (let i = 0; i < indices.length; i++) {
+                const point = keypoints[indices[i]];
+                if (point) {
+                    if (i === 0) {
+                        ctx.moveTo(point.x, point.y);
+                    } else {
+                        ctx.lineTo(point.x, point.y);
+                    }
+                }
+            }
+            
+            ctx.closePath();
+            ctx.stroke();
+        }
+        
+        // 显示面部网格数据
+        function displayFaceData(face) {
+            let output = '';
+            
+            if (!face.keypoints) {
+                output = '<em>无关键点数据可用</em>';
+                dataOutput.innerHTML = output;
+                return;
+            }
+            
+            // 基本面部数据
+            output += `<strong>检测到面部</strong><br>`;
+            output += `关键点: ${face.keypoints.length}<br>`;
+            
+            if (face.box) {
+                output += `边界框: X:${face.box.xMin.toFixed(1)}, Y:${face.box.yMin.toFixed(1)}<br>`;
+                output += `宽度:${face.box.width.toFixed(1)}, 高度:${face.box.height.toFixed(1)}<br>`;
+            }
+            
+            // 视线追踪的重要关键点
+            output += `<br><strong>关键点:</strong><br>`;
+            
+            const landmarks = [
+                { name: '左虹膜', index: 468 },
+                { name: '右虹膜', index: 473 }
+            ];
+            
+            landmarks.forEach(landmark => {
+                const point = face.keypoints[landmark.index];
+                if (point) {
+                    output += `${landmark.name}: (${point.x.toFixed(1)}, ${point.y.toFixed(1)})<br>`;
+                }
+            });
+            
+            dataOutput.innerHTML = output;
+        }
+        
+        // 基于虹膜位置相对于眼睛中心分析视线方向
+        function analyzeGazeDirection(face) {
+            if (!face.keypoints || !gazeDetectionEnabled) return;
+            
+            let output = '';
+            
+            // 获取虹膜位置
+            const leftIris = face.keypoints[468];
+            const rightIris = face.keypoints[473];
+            
+            if (!leftIris || !rightIris) {
+                gazeAnalysis.innerHTML = '<em>虹膜数据不可用</em>';
+                return;
+            }
+            
+            // 计算眼睛中心
+            const leftEyePoints = LANDMARK_INDICES.LEFT_EYE.map(idx => face.keypoints[idx]).filter(Boolean);
+            const rightEyePoints = LANDMARK_INDICES.RIGHT_EYE.map(idx => face.keypoints[idx]).filter(Boolean);
+            
+            if (leftEyePoints.length === 0 || rightEyePoints.length === 0) {
+                gazeAnalysis.innerHTML = '<em>眼睛数据不可用</em>';
+                return;
+            }
+            
+            const leftEyeCenter = calculateCenter(leftEyePoints);
+            const rightEyeCenter = calculateCenter(rightEyePoints);
+            
+            // 计算虹膜相对于眼睛中心的水平位移
+            const leftDisplacement = leftIris.x - leftEyeCenter.x;
+            const rightDisplacement = rightIris.x - rightEyeCenter.x;
+            
+            // 平均两只眼睛的位移
+            const avgDisplacement = (leftDisplacement + rightDisplacement) / 2;
+            
+            // 存储在历史记录中以进行平滑处理
+            gazeHistory.push(avgDisplacement);
+            if (gazeHistory.length > gazeHistoryLength) {
+                gazeHistory.shift();
+            }
+            
+            // 计算平滑后的位移
+            const smoothedDisplacement = gazeHistory.reduce((sum, val) => sum + val, 0) / gazeHistory.length;
+            
+            // 确定视线方向
+            let gazeDirection = 'center';
+            let gazeStrength = Math.abs(smoothedDisplacement);
+            
+            if (smoothedDisplacement < -2) {
+                gazeDirection = 'left';
+            } else if (smoothedDisplacement > 2) {
+                gazeDirection = 'right';
+            }
+            
+            // 基于视线方向更新UI
+            updateGazeIndicator(gazeDirection, gazeStrength);
+            
+            // 处理自动翻页
+            handleAutoPageTurn(gazeDirection);
+            
+            // 显示分析数据
+            output += `<strong>视线分析:</strong><br>`;
+            output += `方向: <strong>${gazeDirection.toUpperCase()}</strong><br>`;
+            output += `位移: ${smoothedDisplacement.toFixed(2)}<br>`;
+            output += `强度: ${gazeStrength.toFixed(2)}<br>`;
+            output += `<br>`;
+            output += `<strong>左眼:</strong><br>`;
+            output += `虹膜 X: ${leftIris.x.toFixed(1)}<br>`;
+            output += `中心 X: ${leftEyeCenter.x.toFixed(1)}<br>`;
+            output += `位移: ${leftDisplacement.toFixed(2)}<br>`;
+            output += `<br>`;
+            output += `<strong>右眼:</strong><br>`;
+            output += `虹膜 X: ${rightIris.x.toFixed(1)}<br>`;
+            output += `中心 X: ${rightEyeCenter.x.toFixed(1)}<br>`;
+            output += `位移: ${rightDisplacement.toFixed(2)}<br>`;
+            
+            gazeAnalysis.innerHTML = output;
+        }
+        
+        // 处理自动翻页
+        function handleAutoPageTurn(direction) {
+            if (!gazeDetectionEnabled) return;
+            
+            const currentTime = Date.now();
+            
+            // 检查翻页冷却时间
+            if (currentTime - lastPageTurnTime < PAGE_TURN_COOLDOWN) {
+                return;
+            }
+            
+            // 只有当视线方向改变时才触发
+            if (direction !== lastGazeDirection) {
+                lastGazeDirection = direction;
+                
+                // 清除现有的触发器
+                if (gazeTriggerTimeout) {
+                    clearTimeout(gazeTriggerTimeout);
+                    gazeTriggerTimeout = null;
+                }
+                
+                // 设置新的触发器
+                if (direction !== 'center') {
+                    gazeTriggerTimeout = setTimeout(() => {
+                        if (newdir(direction, isMirrored) === 'left' && swiper.activeIndex > 0) {
+                            swiper.slidePrev();
+                            lastPageTurnTime = Date.now();
+                        } else if (newdir(direction, isMirrored) === 'right' && swiper.activeIndex < swiper.slides.length - 1) {
+                            swiper.slideNext();
+                            lastPageTurnTime = Date.now();
+                        }
+                        
+                        // 翻页后重置触发器
+                        gazeTriggerTimeout = null;
+                    }, 800); // 0.8秒后触发翻页
+                }
+            }
+        }
+        
+        // 根据方向更新视线指示器
+        function updateGazeIndicator(direction, strength) {
+            // 更新视觉指示器
+            gazeIndicator.classList.remove('gaze-left', 'gaze-right', 'gaze-active');
+            
+            if (newdir(direction, isMirrored) === 'left') {
+                gazeIndicator.classList.add('gaze-left', 'gaze-active');
+                gazeDirection.textContent = '向左看 - 即将翻到上一页';
+                gazeDirection.className = 'gaze-direction gaze-left-text';
+            } else if (newdir(direction, isMirrored) === 'right') {
+                gazeIndicator.classList.add('gaze-right', 'gaze-active');
+                gazeDirection.textContent = '向右看 - 即将翻到下一页';
+                gazeDirection.className = 'gaze-direction gaze-right-text';
+            } else {
+                gazeDirection.textContent = '直视前方';
+                gazeDirection.className = 'gaze-direction gaze-center-text';
+            }
+            
+            // 根据视线强度调整不透明度
+            if (direction !== 'center') {
+                const opacity = Math.min(0.7, 0.3 + strength / 10);
+                gazeIndicator.style.opacity = opacity;
+            }
+        }
+        
+        // 计算多个点中心点的辅助函数
+        function calculateCenter(points) {
+            if (!points || points.length === 0) return { x: 0, y: 0 };
+            
+            const sum = points.reduce((acc, point) => {
+                return { x: acc.x + point.x, y: acc.y + point.y };
+            }, { x: 0, y: 0 });
+            
+            return {
+                x: sum.x / points.length,
+                y: sum.y / points.length
+            };
+        }
+        
+        // 页面加载时初始化应用
+        window.addEventListener('DOMContentLoaded', init);
+
+        // 切换视频镜像
+        let isMirrored = false;
+        const mirrorButton = document.createElement('button');
+        mirrorButton.className = 'control-btn mirror-btn';
+        mirrorButton.textContent = '视频镜像：关';
+        mirrorButton.addEventListener('click', toggleMirror);
+
+        // 将镜像按钮添加到控制区域
+        document.querySelector('.controls').appendChild(mirrorButton);
+
+        function toggleMirror() {
+            isMirrored = !isMirrored;
+            if (isMirrored) {
+                video.style.transform = 'scaleX(-1)';
+                canvas.style.transform = 'scaleX(-1)';
+                mirrorButton.textContent = '视频镜像：开';
+                mirrorButton.classList.add('active');
+            } else {
+                video.style.transform = 'scaleX(1)';
+                canvas.style.transform = 'scaleX(1)';
+                mirrorButton.textContent = '视频镜像：关';
+                mirrorButton.classList.remove('active');
+            }
+        }
+
+        // 修改面部检测函数，考虑镜像状态
+        async function detectFaces() {
+            if (!isRunning) return;
+            
+            try {
+                // 计算FPS
+                frameCount++;
+                const currentTime = performance.now();
+                if (currentTime - lastFrameTime >= 1000) {
+                    fps = Math.round((frameCount * 1000) / (currentTime - lastFrameTime));
+                    frameCount = 0;
+                    lastFrameTime = currentTime;
+                    fpsCounter.textContent = `FPS: ${fps}`;
+                }
+                
+                // 获取面部预测 - 如果镜像了，设置flipHorizontal为true
+                const predictions = await model.estimateFaces(video, {
+                    flipHorizontal: isMirrored, // 关键修改：根据镜像状态调整
+                    predictIrises: true
+                });
+                
+                // 清除画布
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                
+                // 绘制视频帧
+                ctx.save();
+                if (isMirrored) {
+                    ctx.scale(-1, 1);
+                    ctx.translate(-canvas.width, 0);
+                }
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                
+                // 处理预测
+                if (predictions.length > 0) {
+                    const face = predictions[0];
+                    
+                    // 绘制面部网格
+                    drawFaceMesh(face);
+                    
+                    // 提取并显示数据
+                    displayFaceData(face);
+                    
+                    // 分析视线方向
+                    analyzeGazeDirection(face);
+                } else {
+                    dataOutput.innerHTML = '<em>未检测到面部。请确保您的面部在摄像头中清晰可见。</em>';
+                    gazeAnalysis.innerHTML = '<em>未检测到面部。无视线分析数据。</em>';
+                    
+                    // 重置视线指示器
+                    gazeIndicator.classList.remove('gaze-active');
+                    gazeDirection.textContent = '未检测到面部';
+                    gazeDirection.className = 'gaze-direction gaze-center-text';
+                }
+                
+                ctx.restore();
+                
+                // 继续检测
+                animationId = requestAnimationFrame(detectFaces);
+                
+            } catch (error) {
+                console.error('面部检测过程中出错:', error);
+                // 即使某一帧出错也继续检测
+                animationId = requestAnimationFrame(detectFaces);
+            }
+        }
+
+        // 修改绘制面部网格函数，考虑镜像状态
+        function drawFaceMesh(face) {
+            if (!face.keypoints || face.keypoints.length === 0) return;
+            
+            // 应用镜像变换
+            if (isMirrored) {
+                ctx.save();
+                ctx.scale(-1, 1);
+                ctx.translate(-canvas.width, 0);
+            }
+            
+            // 将所有关键点绘制为小点
+            ctx.fillStyle = '#00FF00';
+            face.keypoints.forEach(point => {
+                ctx.beginPath();
+                ctx.arc(point.x, point.y, 1, 0, 2 * Math.PI);
+                ctx.fill();
+            });
+            
+            // 绘制左眼
+            drawLandmarks(face.keypoints, LANDMARK_INDICES.LEFT_EYE, '#0000FF');
+            
+            // 绘制右眼
+            drawLandmarks(face.keypoints, LANDMARK_INDICES.RIGHT_EYE, '#0000FF');
+            
+            // 绘制虹膜（如果可用）
+            if (face.keypoints[468]) { // 左虹膜中心
+                ctx.fillStyle = '#FFFF00';
+                ctx.beginPath();
+                ctx.arc(face.keypoints[468].x, face.keypoints[468].y, 3, 0, 2 * Math.PI);
+                ctx.fill();
+            }
+            if (face.keypoints[473]) { // 右虹膜中心
+                ctx.fillStyle = '#FFFF00';
+                ctx.beginPath();
+                ctx.arc(face.keypoints[473].x, face.keypoints[473].y, 3, 0, 2 * Math.PI);
+                ctx.fill();
+            }
+            
+            if (isMirrored) {
+                ctx.restore();
+            }
+        }
+
+        // 修改视线分析函数，确保在镜像状态下方向判断正确
+        function analyzeGazeDirection(face) {
+            if (!face.keypoints || !gazeDetectionEnabled) return;
+            
+            let output = '';
+            
+            // 获取虹膜位置
+            const leftIris = face.keypoints[468];
+            const rightIris = face.keypoints[473];
+            
+            if (!leftIris || !rightIris) {
+                gazeAnalysis.innerHTML = '<em>虹膜数据不可用</em>';
+                return;
+            }
+            
+            // 计算眼睛中心
+            const leftEyePoints = LANDMARK_INDICES.LEFT_EYE.map(idx => face.keypoints[idx]).filter(Boolean);
+            const rightEyePoints = LANDMARK_INDICES.RIGHT_EYE.map(idx => face.keypoints[idx]).filter(Boolean);
+            
+            if (leftEyePoints.length === 0 || rightEyePoints.length === 0) {
+                gazeAnalysis.innerHTML = '<em>眼睛数据不可用</em>';
+                return;
+            }
+            
+            const leftEyeCenter = calculateCenter(leftEyePoints);
+            const rightEyeCenter = calculateCenter(rightEyePoints);
+            
+            // 计算虹膜相对于眼睛中心的水平位移
+            const leftDisplacement = leftIris.x - leftEyeCenter.x;
+            const rightDisplacement = rightIris.x - rightEyeCenter.x;
+            
+            // 平均两只眼睛的位移
+            let avgDisplacement = (leftDisplacement + rightDisplacement) / 2;
+            
+            // 关键修改：如果启用了镜像，需要反转位移方向
+            if (isMirrored) {
+                avgDisplacement = -avgDisplacement;
+            }
+            
+            // 存储在历史记录中以进行平滑处理
+            gazeHistory.push(avgDisplacement);
+            if (gazeHistory.length > gazeHistoryLength) {
+                gazeHistory.shift();
+            }
+            
+            // 计算平滑后的位移
+            const smoothedDisplacement = gazeHistory.reduce((sum, val) => sum + val, 0) / gazeHistory.length;
+            
+            // 确定视线方向
+            let gazeDirection = 'center';
+            let gazeStrength = Math.abs(smoothedDisplacement);
+            
+            if (smoothedDisplacement < -2) {
+                gazeDirection = 'left';
+            } else if (smoothedDisplacement > 2) {
+                gazeDirection = 'right';
+            }
+            
+            // 基于视线方向更新UI
+            updateGazeIndicator(gazeDirection, gazeStrength);
+            
+            // 处理自动翻页
+            handleAutoPageTurn(gazeDirection);
+            
+            // 显示分析数据
+            output += `<strong>视线分析:</strong><br>`;
+            output += `方向: <strong>${gazeDirection.toUpperCase()}</strong><br>`;
+            output += `位移: ${smoothedDisplacement.toFixed(2)}<br>`;
+            output += `强度: ${gazeStrength.toFixed(2)}<br>`;
+            output += `镜像状态: ${isMirrored ? '开启' : '关闭'}<br>`;
+            output += `<br>`;
+            output += `<strong>左眼:</strong><br>`;
+            output += `虹膜 X: ${leftIris.x.toFixed(1)}<br>`;
+            output += `中心 X: ${leftEyeCenter.x.toFixed(1)}<br>`;
+            output += `位移: ${leftDisplacement.toFixed(2)}<br>`;
+            output += `<br>`;
+            output += `<strong>右眼:</strong><br>`;
+            output += `虹膜 X: ${rightIris.x.toFixed(1)}<br>`;
+            output += `中心 X: ${rightEyeCenter.x.toFixed(1)}<br>`;
+            output += `位移: ${rightDisplacement.toFixed(2)}<br>`;
+            
+            gazeAnalysis.innerHTML = output;
+        }
+
+        // 添加CSS样式
+        const style = document.createElement('style');
+        style.textContent = `
+            .mirror-btn {
+                background: linear-gradient(135deg, #9b59b6, #8e44ad) !important;
+                box-shadow: 0 4px 10px rgba(155, 89, 182, 0.3) !important;
+            }
+            
+            .mirror-btn:hover {
+                box-shadow: 0 6px 15px rgba(155, 89, 182, 0.4) !important;
+            }
+            
+            .mirror-btn.active {
+                background: linear-gradient(135deg, #e67e22, #d35400) !important;
+            }
+            
+            .controls {
+                display: flex;
+                justify-content: space-between;
+                flex-wrap: wrap;
+                gap: 10px;
+            }
+            
+            .control-btn {
+                flex: 1;
+                min-width: 120px;
+            }
+        `;
+        document.head.appendChild(style);
+    </script>
+</body>
+</html>
